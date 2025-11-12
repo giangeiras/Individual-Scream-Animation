@@ -1,286 +1,208 @@
-let baseImg, skyMask, waterMask, hillsMask, bridgeMask, guyMask;
+/**
+ * Title: Animated Interpretation of “The Scream”
+ * Author: Giovanna Angeiras
+ * Description:
+ * This sketch visualizes Edvard Munch’s *The Scream* using dynamic dot-based animation
+ * that responds to sound. Each region of the painting reacts differently to frequency bands in the audio track.
+ * The project builds on group work, but this version focuses on my individual work, using AUDIO as a method to animate the painting.
+ * References:
+ * - p5.js reference: https://p5js.org/reference/
+ * - p5.Sound library (Amplitude + FFT): https://p5js.org/reference/#/libraries/p5.sound
+ * - Technique for pixel sampling inspired by p5.js “Image get()” example:
+ *   https://p5js.org/examples/image-pixels.html
+ */
 
-let sky, water, hills, bridge, guy;
+let baseImg, skyMask, waterMask, hillsMask, bridgeMask, guyMask; // Image and mask assets
+let allDots = []; // Array to store dot objects across the image
+let song, amp, fft; // Sound-related variables
+let audioStarted = false; // Controls whether sound playback has begun
+let timeOffset = 0; // Used to animate temporal changes (waves, vibrations, etc.)
 
-function preload(){
+function preload() {
+  // Load base painting and all mask images.
+  // Each mask isolates a region of the artwork (white = active area).
+  baseImg = loadImage("assets/scream.jpeg");
+  skyMask = loadImage("assets/sky.png");
+  waterMask = loadImage("assets/water.png");
+  hillsMask = loadImage("assets/bwhills.png");
+  bridgeMask = loadImage("assets/bridge.png");
+  guyMask = loadImage("assets/guy.png");
 
-baseImg = loadImage("assets/scream.jpeg")
-
-guyMask = loadImage("assets/bwguy.png")
-
-skyMask = loadImage("assets/sky.png")
-
-waterMask = loadImage("assets/bwWater.png")
-
-hillsMask = loadImage("assets/hills.png")
-
-bridgeMask = loadImage("assets/bwBridge.png")
-
-sky = new SkyArea(skyMask);
-
-water = new WaterArea(waterMask);
-
-hills = new HillsArea(hillsMask);
-
-bridge = new BridgeArea(bridgeMask);
-
-guy = new GuyArea(guyMask);
-
+  // Load the sound file 
+  // Learned via p5.js Sound example: https://p5js.org/reference/#/p5.SoundFile
+  song = loadSound("assets/screamAudio.mp3");
 }
 
 function setup() {
+  createCanvas(baseImg.width, baseImg.height);
+  imageMode(CORNER);
+  noStroke();
 
-createCanvas(baseImg.width, baseImg.height);
+  // Initialize p5.sound objects
+  amp = new p5.Amplitude(); // Measures overall loudness
+  fft = new p5.FFT(0.8, 64); // Breaks down sound into frequency spectrum
 
-hillsMask.resize(width, height); //Trying to resize mask
+  // Generate a dense field of dots to reconstruct the image
+  // Each dot inherits the color of its pixel in baseImg.
+  let spacing = 3; // Controls density of dots
+  for (let x = 0; x < width; x += spacing) {
+    for (let y = 0; y < height; y += spacing) {
+      // Slight random offset to make the result feel organic and hand-drawn
+      let px = x + random(-spacing / 3, spacing / 3);
+      let py = y + random(-spacing / 3, spacing / 3);
 
-waterMask.resize(width, height);
-bridgeMask.resize(width, height);
+      // Keep dots inside canvas bounds
+      px = constrain(px, 0, width - 1);
+      py = constrain(py, 0, height - 1);
 
-skyMask.resize(width, height);
-guyMask.resize(width, height);
+      // Sample pixel color from base image
+      let c = baseImg.get(int(px), int(py));
 
-//image(baseImg, 0, 0);
+      // Determine which region this pixel belongs to based on masks
+      let area = getAreaType(int(px), int(py));
 
+      // Store dot as an object for later animation
+      allDots.push({ x: px, y: py, c: c, area: area });
+    }
+  }
+
+  console.log("Total dots generated:", allDots.length);
+}
+
+/**
+ * getAreaType(x, y)
+ * Uses brightness values from the mask images to determine which region (sky, water, hills, bridge, guy) a pixel belongs to.
+ * The brighter the pixel in the mask, the stronger the match.
+ */
+function getAreaType(x, y) {
+  // The following brightness thresholds were manually tuned
+  // based on trial and error to best match the regions visually.
+  let guyBright = (guyMask.get(x, y)[0] + guyMask.get(x, y)[1] + guyMask.get(x, y)[2]) / 3;
+  if (guyBright > 100) return 'guy';
+
+  let bridgeBright = (bridgeMask.get(x, y)[0] + bridgeMask.get(x, y)[1] + bridgeMask.get(x, y)[2]) / 3;
+  if (bridgeBright > 20) return 'bridge';
+
+  let skyBright = (skyMask.get(x, y)[0] + skyMask.get(x, y)[1] + skyMask.get(x, y)[2]) / 3;
+  if (skyBright > 120) return 'sky';
+
+  let waterBright = (waterMask.get(x, y)[0] + waterMask.get(x, y)[1] + waterMask.get(x, y)[2]) / 3;
+  if (waterBright > 80) return 'water';
+
+  let hillsBright = (hillsMask.get(x, y)[0] + hillsMask.get(x, y)[1] + hillsMask.get(x, y)[2]) / 3;
+  if (hillsBright > 100) return 'hills';
+
+  // If no mask clearly matches, default to "hills"
+  return 'hills';
 }
 
 function draw() {
+  background(0); // Start with a blank (black) background
 
-//background(220);
-
-hills.drawPoints();
-
-water.drawPoints();
-bridge.drawPoints();
-
-sky.drawStrokes();
-
-
-//draw the pixelated guy last (so he sits on top)
-
-guy.drawPixels();
-}
-
-class SkyArea {
-  constructor(maskImg){
-    this.mask = maskImg;
-
+  // Before audio starts, prompt user to interact
+  if (!audioStarted) {
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(32);
+    text("Click to start the sound", width / 2, height / 2);
+    return; // Wait until user clicks
   }
-drawStrokes() {
-  for (let y = 0; y < height; y += 6) { //loops through the y axis of the canvas in steps of 6 pixels
 
-    let offset = sin(radians(frameCount * 2 + y * 3)) * 10; // horizontal left right movement
+  // Retrieve live amplitude and frequency data
+  let level = amp.getLevel();
+  let spectrum = fft.analyze();
 
-    for (let x = 0; x < width; x += 12) { //each iteration draws one short stroke, 10 pixels wide, along the row
-         // check if pixel belongs to sky (based on mask brightness)
-        let m = this.mask.get(x, y);
-        let bright = (m[0] + m[1] + m[2]) / 3;
+  // Extract main frequency bands for different animation behaviours
+  let bass = fft.getEnergy("bass");
+  let mid = fft.getEnergy("mid");
+  let treble = fft.getEnergy("treble");
 
-        if (bright > 40) {  // only draw strokes where mask is bright (sky area)
-      let c = baseImg.get(x, y); //use colours from base image
-      stroke(c[0], c[1], c[2], 200);
-      strokeWeight(3); // make each line 3 pixels thick
+  // Map amplitude levels to energy values for dot movement intensity
+  let energy = map(level, 0, 0.2, 0.8, 4.0);
+  energy = constrain(energy, 0.8, 4.0);
 
-      // wave movement per pixel
-      let yShift = sin((x * 0.5) + (frameCount * 0.005)) * 3; //vertical wave motion
-      line(x + offset, y + yShift, x + 10 + offset, y + yShift); // horizontal line
-    }
-  }}}
+  let bassAmount = map(bass, 0, 255, 0, 1);
+  let midAmount = map(mid, 0, 255, 0, 1);
+  let trebleAmount = map(treble, 0, 255, 0, 1);
+
+  // Increment timeOffset to create continuous motion
+  timeOffset += 0.05 + bassAmount * 0.1;
+
+  // Draw all dots, applying area-specific transformations
+  for (let p of allDots) {
+    drawDot(p, energy, bassAmount, midAmount, trebleAmount, timeOffset);
+  }
 }
 
+
+function drawDot(p, energy, bassAmount, midAmount, trebleAmount, timeOffset) {
+  let finalX, finalY, size;
+
+  // Base size determined by pixel brightness
+  let baseSize = map((p.c[0] + p.c[1] + p.c[2]) / 3, 0, 255, 2, 5);
+
+  if (p.area === 'sky') {
+    // Sine and cosine waveforms learned from p5.js trig examples.
+    let spiralX = sin(p.y * 0.02 + timeOffset * 1.5) * trebleAmount * 20;
+    let spiralY = cos(p.x * 0.015 + timeOffset) * trebleAmount * 15 - bassAmount * 10;
+
+    finalX = p.x + spiralX + random(-energy, energy) * 0.3;
+    finalY = p.y + spiralY + random(-energy, energy) * 0.3;
+    size = baseSize * (1 + energy * 0.3) * (1 + trebleAmount * 0.7);
+
+  } else if (p.area === 'water') {
+    
+    let waveX = sin(p.y * 0.03 + timeOffset * 2) * midAmount * 25;
+    let waveY = cos(p.x * 0.02 + timeOffset * 1.5) * midAmount * 12 + bassAmount * 8;
+
+    finalX = p.x + waveX;
+    finalY = p.y + waveY;
+    size = baseSize * (1 + energy * 0.3) * (1 + midAmount * 0.8);
+
+  } else if (p.area === 'hills') {
+    
+    let rollX = sin(p.y * 0.015 + timeOffset) * bassAmount * 18;
+    let rollY = cos(p.x * 0.01 + timeOffset * 0.8) * bassAmount * 10;
+
+    finalX = p.x + rollX;
+    finalY = p.y + rollY;
+    size = baseSize * (1 + energy * 0.3) * (1 + bassAmount * 0.6);
+
+  } else if (p.area === 'bridge') {
   
+    let vibrateX = sin(timeOffset * 3 + p.x * 0.05) * energy * 3;
+    let vibrateY = cos(timeOffset * 2.5 + p.y * 0.05) * energy * 2;
 
-class WaterArea {
+    finalX = p.x + vibrateX;
+    finalY = p.y + vibrateY;
+    size = baseSize * (1 + energy * 0.3) * (1 + (bassAmount + midAmount + trebleAmount) * 0.3);
 
-constructor(maskImg){this.mask = maskImg;}
+  } else if (p.area === 'guy') {
+    // “Screaming” area 
+    let distortX = sin(p.y * 0.04 + timeOffset * 2) * bassAmount * 12;
+    let distortY = cos(p.x * 0.04 + timeOffset * 2) * bassAmount * 12;
+    let pulseX = sin(timeOffset * 3) * trebleAmount * 8;
+    let pulseY = cos(timeOffset * 3) * trebleAmount * 8;
 
-drawPoints(){
-
-for (let i = 0; i < 250; i++){
-
-let x = random(width);
-
-let y = random(height);
-
-//Black and White Mask
-
-let m = this.mask.get(int(x), int(y));
-
-let bright = (m[0] + m[1] + m[2]) /3;
-
-if (bright < 100) continue;
-
-//Chooses color for the painting
-
-let c = baseImg.get(int(x), int(y));
-
-let size = map((c[0] + c[1] + c[2])/3, 0, 255, 2, 6) //size depends on color
-
-//Dot details
-
-strokeWeight(size);
-
-stroke(c[0], c[1], c[2], 180);
-
-point(x, y);
-
-}
-
-}
-
-}
-
-//Alex
-
-class HillsArea {
-
-constructor(maskImg){this.mask = maskImg;}
-
-/*drawLines() {
-
-//Draws 5 lines
-
-for (let i = 0; i < 5; i++){
-
-let x1 = random(width);
-
-let y1 = random(height);
-
-let x2 = random(width);
-
-let y2 = random(height);
-
-//Check Point 1
-
-let p1 = this.mask.get(int(x1), int(y1));
-
-let b1 = (p1[0] + p1[1] + p1[2]) /3; //greyscale
-
-//Check Point 2
-
-let p2 = this.mask.get(int(x2), int(y2));
-
-let b2 = (p2[0] + p2[1] + p2[2]) /3; //greyscale
-
-if(b1 < 200 || b2 < 200) continue; //avoid drawing in the black
-
-//Choses color for the painting
-
-let c = baseImg.get(int(x1), int(y1));
-
-strokeWeight(4);
-
-stroke(c[0], c[1], c[2], 180);
-
-line(x1, y1, x2, y2);
-
-}
-
-}*/
-
-drawPoints(){
-
-for (let i = 0; i < 250; i++){
-
-let x = random(width);
-
-let y = random(height);
-
-//Black and White Mask
-
-let m = this.mask.get(int(x), int(y));
-
-let bright = (m[0] + m[1] + m[2]) /3;
-
-if (bright < 100) continue;
-
-//Choses color for the painting
-
-let c = baseImg.get(int(x), int(y));
-
-let size = map((c[0] + c[1] + c[2])/3, 0, 255, 2, 6) //size depends on color
-
-//Dot details
-
-strokeWeight(size);
-
-stroke(c[0], c[1], c[2], 180);
-
-point(x, y);
-
-}
-
-}
-
-}
-
-class BridgeArea {
-  constructor(maskImg) {
-    this.mask = maskImg;
+    finalX = p.x + distortX + pulseX;
+    finalY = p.y + distortY + pulseY;
+    baseSize = map((p.c[0] + p.c[1] + p.c[2]) / 3, 0, 255, 2.5, 6);
+    size = baseSize * (1 + energy * 0.4) * (1 + bassAmount * 1.2 + trebleAmount * 0.5);
   }
 
-  drawPoints() {
-    for (let i = 0; i < 250; i++) {
-      let x = random(width);
-      let y = random(height);
-
-      // Safety check: make sure we don't go out of bounds
-      x = constrain(int(x), 0, width - 1);
-      y = constrain(int(y), 0, height - 1);
-
-      // Get mask pixel
-      let m = this.mask.get(x, y);
-
-      // Safety check: skip if mask.get() returns undefined
-      if (!m) continue;
-
-      // Average brightness of the mask pixel
-      let bright = (m[0] + m[1] + m[2]) / 3;
-
-      // Include most of the bridge (low threshold)
-      if (bright < 20) continue;
-
-      // Get color from base image
-      let c = baseImg.get(x, y);
-
-      // Map brightness to dot size
-      let size = map((c[0] + c[1] + c[2]) / 3, 0, 255, 2, 6);
-
-      // Draw the dot
-      strokeWeight(size);
-      stroke(c[0], c[1], c[2], 180);
-      point(x, y);
-    }
-  }
+  // Finally draw the dot with its original color
+  fill(p.c[0], p.c[1], p.c[2], 255);
+  ellipse(finalX, finalY, size, size);
 }
 
-class GuyArea {
-constructor(maskImg) {
-    this.mask = maskImg;
-    this.pixelSize = 6;       // try 6–10 to see it clearly first
-    this.pixelsPerFrame = 100; // how fast he appears
-  }
-
-  drawPixels() {
-    for (let i = 0; i < this.pixelsPerFrame; i++) {
-      // pick a random position snapped to the pixel grid
-      let x = floor(random(width / this.pixelSize)) * this.pixelSize;
-      let y = floor(random(height / this.pixelSize)) * this.pixelSize;
-
-      // look up the mask at that position
-      let m = this.mask.get(x, y);
-      let bright = (m[0] + m[1] + m[2]) / 3;
-
-      // only draw where the mask is WHITE (inside the guy)
-      if (bright < 100) continue;
-
-      // sample colour from the base image
-      let c = baseImg.get(x, y);
-
-      noStroke();
-      // alpha controls softness of fade-in
-      fill(c[0], c[1], c[2], 120);
-      rect(x, y, this.pixelSize, this.pixelSize);
-    }
+/**
+ * mousePressed()
+ * Starts the audio loop on user interaction.
+ * (This step is required because browsers restrict autoplay of audio.)
+ */
+function mousePressed() {
+  if (!audioStarted) {
+    song.loop();
+    audioStarted = true;
   }
 }
